@@ -42,6 +42,14 @@
       margin-right: 10px;
     }
 
+    input[type="text"] {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      width: 200px;
+      font-size: 16px;
+    }
+
     input[type="number"] {
       padding: 10px;
       border: 1px solid #ddd;
@@ -190,6 +198,11 @@
       border-left-color: #ffc107;
     }
 
+    .result-card.highlight-minimo {
+      background: #e8f5e8;
+      border-left-color: #27ae60;
+    }
+
     .result-label {
       font-size: 14px;
       color: #666;
@@ -262,6 +275,16 @@
       margin-top: 30px;
     }
 
+    .prolabore-ajuste-note {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      border-radius: 6px;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 13px;
+      color: #856404;
+    }
+
     @media (max-width: 768px) {
       label {
         width: 100%;
@@ -271,6 +294,10 @@
       .input-group {
         flex-direction: column;
         align-items: flex-start;
+      }
+      
+      input[type="text"] {
+        width: 100%;
       }
       
       input[type="number"] {
@@ -309,13 +336,13 @@
 
   <div class="form-container">
     <div class="input-group">
-      <label for="faturamento">Faturamento Mensal (R$):</label>
-      <input type="number" id="faturamento" value="0" min="0" step="100">
+      <label for="faturamento">Faturamento Mensal:</label>
+      <input type="text" id="faturamento" value="R$ 0,00" placeholder="R$ 0,00">
     </div>
 
     <div class="input-group">
-      <label for="prolabore">Pró-labore (R$):</label>
-      <input type="number" id="prolabore" value="0" min="0" step="100">
+      <label for="prolabore">Pró-labore:</label>
+      <input type="text" id="prolabore" value="R$ 0,00" placeholder="R$ 0,00">
     </div>
 
     <div class="input-group">
@@ -416,6 +443,7 @@
     Valores calculados com base nas alíquotas do Simples Nacional vigentes em 2025.
     O Anexo IV requer pagamento adicional de 20% de CPP patronal sobre o pró-labore.
     IRRF calculado com base no desconto simplificado de R$ 607,20 (projeção 2025) sobre o pró-labore.
+    Todos os cálculos respeitam o pró-labore mínimo de R$ 1.518,00 (salário mínimo).
     Esta é apenas uma simulação e não substitui a consulta a um contador.
   </p>
 
@@ -423,6 +451,76 @@
     // Constantes para o cálculo
     const SALARIO_MINIMO = 1518.00;
     const DESCONTO_SIMPLIFICADO_IRRF = 607.20;
+
+    // Funções para formatação de moeda
+    function aplicarMascaraMoeda(valor) {
+      // Remove tudo que não é dígito
+      let numero = valor.replace(/\D/g, '');
+      
+      // Se não há números, retorna formatação vazia
+      if (!numero) return 'R$ 0,00';
+      
+      // Converte para número e divide por 100 para ter os centavos
+      numero = parseFloat(numero) / 100;
+      
+      // Formata como moeda brasileira
+      return numero.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function removerMascaraMoeda(valor) {
+      // Remove símbolos de moeda e converte para número
+      return parseFloat(valor.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    }
+
+    function configurarCampoMoeda(elementId) {
+      const elemento = document.getElementById(elementId);
+      
+      elemento.addEventListener('input', function(e) {
+        const valorAtual = e.target.value;
+        const valorFormatado = aplicarMascaraMoeda(valorAtual);
+        e.target.value = valorFormatado;
+        
+        // Se não é o campo de salário mínimo, remove readonly se existir
+        if (elementId === 'prolabore') {
+          const opcaoMinimoCheckbox = document.getElementById("opcaoMinimo");
+          if (opcaoMinimoCheckbox.checked) {
+            opcaoMinimoCheckbox.checked = false;
+            elemento.removeAttribute("readonly");
+            elemento.style.backgroundColor = "white";
+          }
+        }
+        
+        calcular();
+      });
+
+      elemento.addEventListener('focus', function(e) {
+        // Quando focar no campo, se for R$ 0,00, limpa para facilitar digitação
+        if (e.target.value === 'R$ 0,00') {
+          e.target.value = 'R$ ';
+        }
+      });
+
+      elemento.addEventListener('blur', function(e) {
+        // Se sair do campo vazio ou só com R$, volta para R$ 0,00
+        if (e.target.value === 'R$ ' || e.target.value === '') {
+          e.target.value = 'R$ 0,00';
+          calcular();
+        }
+      });
+
+      // Permite apenas números, vírgula, ponto e teclas de controle
+      elemento.addEventListener('keypress', function(e) {
+        const char = String.fromCharCode(e.which);
+        if (!/[0-9,.]/.test(char) && !e.ctrlKey && e.which !== 8 && e.which !== 46) {
+          e.preventDefault();
+        }
+      });
+    }
 
     // Alíquotas do Simples Nacional para cada anexo
     const ALIQUOTAS_SIMPLES = {
@@ -497,7 +595,7 @@
     /**
      * Calcula os detalhes financeiros para um anexo específico.
      */
-    function calcularAnexoDetalhado(faturamento, prolaboreBruto, aliquotaDasSimples, tipoAnexo) {
+    function calcularAnexoDetalhado(faturamento, prolaboreBruto, aliquotaDasSimples, tipoAnexo, prolaboreOriginal = null) {
       const inss = prolaboreBruto * 0.11;
       const cppPatronal = tipoAnexo === "anexoIV" ? (prolaboreBruto * 0.20) : 0;
       const irrf = calcularIRRF(prolaboreBruto);
@@ -515,7 +613,9 @@
         prolaboreLiquido, 
         das,
         lucro: Math.max(0, lucroDistribuivel), 
-        totalLiquido: totalLiquidoSocio
+        totalLiquido: totalLiquidoSocio,
+        prolaboreAjustado: prolaboreOriginal !== null && prolaboreBruto > prolaboreOriginal,
+        prolaboreOriginal: prolaboreOriginal
       };
     }
 
@@ -565,6 +665,11 @@
         const card = document.createElement('div');
         card.className = 'result-card';
         if (field.classe === 'special') card.classList.add('special');
+        
+        // Destaca o pró-labore quando foi ajustado para o mínimo
+        if (field.campo === 'prolaboreBruto' && resultado.prolaboreAjustado) {
+          card.classList.add('highlight-minimo');
+        }
 
         const label = document.createElement('div');
         label.className = 'result-label';
@@ -577,6 +682,15 @@
 
         card.appendChild(label);
         card.appendChild(value);
+
+        // Adiciona nota explicativa quando o pró-labore foi ajustado
+        if (field.campo === 'prolaboreBruto' && resultado.prolaboreAjustado) {
+          const note = document.createElement('div');
+          note.className = 'prolabore-ajuste-note';
+          note.textContent = `Ajustado para o salário mínimo (valor original: ${formatarMoeda(resultado.prolaboreOriginal)})`;
+          card.appendChild(note);
+        }
+
         container.appendChild(card);
       });
 
@@ -630,27 +744,22 @@
      * Função principal para calcular os valores e atualizar a interface.
      */
     function calcular() {
-      const faturamento = parseFloat(document.getElementById("faturamento").value) || 0;
-      const prolaboreUsuario = parseFloat(document.getElementById("prolabore").value) || 0;
+      const faturamento = removerMascaraMoeda(document.getElementById("faturamento").value);
+      const prolaboreUsuario = removerMascaraMoeda(document.getElementById("prolabore").value);
 
-      const percentualProlaboreUsuario = faturamento > 0 ? (prolaboreUsuario / faturamento) : 0;
-      const fatorRAplicavelUsuario = percentualProlaboreUsuario >= 0.28 || Math.abs(percentualProlaboreUsuario - 0.28) < 0.0001;
+      // Calcula o pró-labore efetivo para cada anexo (sempre respeitando o mínimo)
+      const prolaboreEfetivoAnexos = Math.max(prolaboreUsuario, SALARIO_MINIMO);
 
-      const prolaboreBaseParaFatorR = faturamento * 0.28;
-      let prolaboreParaColunaFatorROtimizado;
-      if (prolaboreUsuario > prolaboreBaseParaFatorR) {
-          prolaboreParaColunaFatorROtimizado = prolaboreUsuario;
-      } else {
-          prolaboreParaColunaFatorROtimizado = prolaboreBaseParaFatorR;
-      }
-      prolaboreParaColunaFatorROtimizado = Math.max(0, prolaboreParaColunaFatorROtimizado);
+      // Para o Fator R Otimizado, usa 28% do faturamento ou salário mínimo, o que for maior
+      const prolaboreBaseParaFatorR = Math.max(faturamento * 0.28, SALARIO_MINIMO);
+      const prolaboreEfetivoFatorR = Math.max(prolaboreUsuario, prolaboreBaseParaFatorR);
 
       const resultados = {
-        anexoI: calcularAnexoDetalhado(faturamento, prolaboreUsuario, ALIQUOTAS_SIMPLES.anexoI, "anexoI"),
-        anexoIII: calcularAnexoDetalhado(faturamento, prolaboreUsuario, ALIQUOTAS_SIMPLES.anexoIII, "anexoIII"),
-        anexoIV: calcularAnexoDetalhado(faturamento, prolaboreUsuario, ALIQUOTAS_SIMPLES.anexoIV, "anexoIV"),
-        anexoV: calcularAnexoDetalhado(faturamento, prolaboreUsuario, ALIQUOTAS_SIMPLES.anexoV, "anexoV_original"),
-        anexoVFatorROtimizado: calcularAnexoDetalhado(faturamento, prolaboreParaColunaFatorROtimizado, ALIQUOTAS_SIMPLES.anexoIII, "anexoVFatorROtimizado")
+        anexoI: calcularAnexoDetalhado(faturamento, prolaboreEfetivoAnexos, ALIQUOTAS_SIMPLES.anexoI, "anexoI", prolaboreUsuario),
+        anexoIII: calcularAnexoDetalhado(faturamento, prolaboreEfetivoAnexos, ALIQUOTAS_SIMPLES.anexoIII, "anexoIII", prolaboreUsuario),
+        anexoIV: calcularAnexoDetalhado(faturamento, prolaboreEfetivoAnexos, ALIQUOTAS_SIMPLES.anexoIV, "anexoIV", prolaboreUsuario),
+        anexoV: calcularAnexoDetalhado(faturamento, prolaboreEfetivoAnexos, ALIQUOTAS_SIMPLES.anexoV, "anexoV_original", prolaboreUsuario),
+        anexoVFatorROtimizado: calcularAnexoDetalhado(faturamento, prolaboreEfetivoFatorR, ALIQUOTAS_SIMPLES.anexoIII, "anexoVFatorROtimizado", prolaboreUsuario)
       };
 
       atualizarInterfaceAbas(resultados);
@@ -661,7 +770,7 @@
       const prolaboreInputEl = document.getElementById("prolabore");
 
       if (this.checked) {
-        prolaboreInputEl.value = SALARIO_MINIMO.toFixed(2);
+        prolaboreInputEl.value = aplicarMascaraMoeda(SALARIO_MINIMO.toFixed(2).replace('.', ''));
         prolaboreInputEl.setAttribute("readonly", true);
         prolaboreInputEl.style.backgroundColor = "#f2f2f2";
       } else {
@@ -671,23 +780,13 @@
       calcular();
     });
 
-    document.getElementById("faturamento").addEventListener("input", calcular);
-
-    document.getElementById("prolabore").addEventListener("input", () => {
-        const prolaboreInputEl = document.getElementById("prolabore");
-        const opcaoMinimoCheckbox = document.getElementById("opcaoMinimo");
-
-        if (opcaoMinimoCheckbox.checked) {
-            opcaoMinimoCheckbox.checked = false;
-        }
-        prolaboreInputEl.removeAttribute("readonly");
-        prolaboreInputEl.style.backgroundColor = "white";
-        calcular();
-    });
-
     // Inicialização
     window.onload = function() {
       inicializarAbas();
+      
+      // Configura as máscaras de moeda nos campos
+      configurarCampoMoeda('faturamento');
+      configurarCampoMoeda('prolabore');
       
       // Cálculo inicial com valores padrão
       calcular();
